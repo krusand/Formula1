@@ -9,8 +9,8 @@ import os
 
 def main():
     f1.Cache.enable_cache("C:\Windows\Temp")
-    Year = 2022
-    number_of_races = 22
+    Year = 2023
+    number_of_races = 1
     Type = "Q"
     for i in range(1, number_of_races+1):
         session = f1.get_session(Year,i, Type)
