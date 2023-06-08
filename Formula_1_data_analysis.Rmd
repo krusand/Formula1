@@ -36,34 +36,85 @@ cat("Driver nr:", driver.nr, "\n")
 
 ```
 
+### Compare drivers laptimes
 
 ```{r}
 
 laps <- df %>% drop_na(LapTime)
-head(laps)
 laptimes <- c()
 for (i in 1:length(laps$LapTime)) {
   laptime <- gsub("0 days 00:","",laps$LapTime[i])
   laptimes <- c(laptimes, as.numeric(ms(laptime)))
 }
+
 laps$LapTime <- laptimes
 
 
+compare_drivers_laptime <- function(laps, drivers, plot = F) {
+  drivers_laps <- data.frame()
+  for (i in 1:length(drivers)) {
+    driver_laps <- subset(laps, Driver == drivers[i]) %>% subset(., LapTime < 85)
+    drivers_laps <- rbind(driver_laps, drivers_laps)
+  }
+  if (plot) {
+    ggplot(drivers_laps, aes(LapNumber, LapTime, col= Driver)) + geom_line()
+  }
+  else {
+    return(drivers_laps)
+  }
+}
 
-VER_laps <- subset(laps, DriverNumber == 1)
-VER_laps.nonpit <- subset(VER_laps, LapTime < 82)
+comparison_data <- compare_drivers_laptime(laps, driver.names)
+p <- ggplot(comparison_data, aes(LapNumber, LapTime, col= Driver)) + geom_line()
+ggplotly(p) %>% rangeslider()
 
-PER_laps <- subset(laps, DriverNumber == 11)
-PER_laps.nonpit <- subset(PER_laps, LapTime < 82)
-redbull_laps.nonpit <- rbind(VER_laps.nonpit, PER_laps.nonpit)
-
-ggplot(redbull_laps.nonpit, aes(LapNumber, LapTime, col= Driver)) + geom_line()
 
 ```
 
 
 
+```{r}
+library(ggplot2)
+library(plotly)
+library(shiny)
 
+# Create a vector of all unique drivers in the dataset
+all_drivers <- unique(comparison_data$Driver)
+
+# Define the UI
+ui <- fluidPage(
+  selectInput("driverSelect", "Select Drivers:", choices = all_drivers, 
+              selected = c("MAG", "VER"), multiple = TRUE),
+  plotlyOutput("plot")
+)
+
+# Define the server function
+server <- function(input, output, session) {
+  # Create a reactive variable to store the selected drivers
+  selected_drivers <- reactive({
+    input$driverSelect
+  })
+
+  # Create the ggplot object with reactive data
+  p <- reactive({
+    filtered_data <- subset(comparison_data, Driver %in% selected_drivers())
+    ggplot(filtered_data, aes(LapNumber, LapTime, col = Driver)) + geom_line()
+  })
+
+  # Create the plotly object
+  p_plotly <- reactive({
+    ggplotly(p()) %>% rangeslider()
+  })
+
+  # Render the plotly object
+  output$plot <- renderPlotly({
+    p_plotly()
+  })
+}
+
+# Run the Shiny app
+shinyApp(ui, server)
+```
 
 
 
