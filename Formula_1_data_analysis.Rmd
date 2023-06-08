@@ -1,0 +1,72 @@
+---
+title: "Formula 1 data analysis"
+author: "Andreas Svenningsen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warnings = F)
+```
+
+# Packages
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+
+# Importing data
+
+```{r}
+df <- read_csv("Testing notebooks/SPAIN_Race_laps.csv", show_col_types = F)
+head(laps)
+```
+
+# EDA
+```{r}
+
+cat("Columns:", colnames(df), "\n")
+
+driver.names <- unique(df$Driver)
+cat("Drivers:", driver.names, "\n")
+
+driver.nr <- unique(df$DriverNumber)
+cat("Driver nr:", driver.nr, "\n")
+
+```
+
+
+```{r}
+
+laps <- df %>% drop_na(LapTime)
+head(laps)
+laptimes <- c()
+for (i in 1:length(laps$LapTime)) {
+  laptime <- gsub("0 days 00:","",laps$LapTime[i])
+  laptimes <- c(laptimes, as.numeric(ms(laptime)))
+}
+laps$LapTime <- laptimes
+
+
+
+VER_laps <- subset(laps, DriverNumber == 1)
+VER_laps.nonpit <- subset(VER_laps, LapTime < 82)
+
+PER_laps <- subset(laps, DriverNumber == 11)
+PER_laps.nonpit <- subset(PER_laps, LapTime < 82)
+redbull_laps.nonpit <- rbind(VER_laps.nonpit, PER_laps.nonpit)
+
+ggplot(redbull_laps.nonpit, aes(LapNumber, LapTime, col= Driver)) + geom_line()
+
+```
+
+
+
+
+
+
+
+
+
+
