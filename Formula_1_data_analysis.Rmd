@@ -13,30 +13,33 @@ knitr::opts_chunk$set(echo = TRUE, warnings = F)
 ```{r}
 library(tidyverse)
 library(lubridate)
+library(plotly)
+library(shiny)
 ```
 
 
 # Importing data
 
 ```{r}
-df <- read_csv("Testing notebooks/SPAIN_Race_laps.csv", show_col_types = F)
-head(laps)
+df <- read_csv("Data/SPAIN_Race_laps.csv", show_col_types = F)
+head(df)
 ```
 
-# EDA
 ```{r}
 
-cat("Columns:", colnames(df), "\n")
+cat("Columns:\n", colnames(df), "\n\n")
 
 driver.names <- unique(df$Driver)
-cat("Drivers:", driver.names, "\n")
+cat("Drivers:\n", driver.names, "\n\n")
 
 driver.nr <- unique(df$DriverNumber)
-cat("Driver nr:", driver.nr, "\n")
+cat("Driver nr:\n", driver.nr, "\n\n")
 
 ```
 
 ### Compare drivers laptimes
+
+
 
 ```{r}
 
@@ -49,75 +52,117 @@ for (i in 1:length(laps$LapTime)) {
 
 laps$LapTime <- laptimes
 
+laps.nonpit <- subset(laps, is.na(PitOutTime)) %>% subset(., is.na(PitInTime)) # Remove pit laps
 
-compare_drivers_laptime <- function(laps, drivers, plot = F) {
-  drivers_laps <- data.frame()
-  for (i in 1:length(drivers)) {
-    driver_laps <- subset(laps, Driver == drivers[i]) %>% subset(., LapTime < 85)
-    drivers_laps <- rbind(driver_laps, drivers_laps)
-  }
-  if (plot) {
-    ggplot(drivers_laps, aes(LapNumber, LapTime, col= Driver)) + geom_line()
-  }
-  else {
-    return(drivers_laps)
-  }
-}
+p <- ggplot(laps.nonpit, aes(LapNumber, LapTime, col= Driver)) + geom_line()
+ggplotly(p)
 
-comparison_data <- compare_drivers_laptime(laps, driver.names)
-p <- ggplot(comparison_data, aes(LapNumber, LapTime, col= Driver)) + geom_line()
-ggplotly(p) %>% rangeslider()
-
+p2 <- ggplot(laps.nonpit) + geom_boxplot(mapping = aes(Driver, LapTime, col = Driver))
+ggplotly(p2)
 
 ```
 
+```{r}
+# Get pit time data
+
+selected_laps_pit1 <- subset(df, !is.na(PitOutTime) | !is.na(PitInTime))
+selected_laps_pit1 <- subset(selected_laps_pit1, (LapNumber == 1 & !is.na(PitInTime) | LapNumber != 1))
+
+
+pit_drivers <- c()
+pit_times <- c()
+
+for (i in seq(1,length(selected_laps_pit1$PitInTime)-1,by = 2)) {
+  time_diff <- as.numeric(
+    as.duration(
+      hms(gsub("0 days ", "", selected_laps_pit1$PitOutTime[i+1])) - 
+      hms(gsub("0 days ", "", selected_laps_pit1$PitInTime[i]))
+      )
+    )
+  pit_times <- c(pit_times, time_diff)
+  pit_drivers <- c(pit_drivers, selected_laps_pit1$Driver[i])
+}
+
+pit_data <- data.frame(Driver = pit_drivers, PitTime = pit_times )
+pit_data
+pit_data <- subset(pit_data, Driver %in% c("MAG","ALO"))
+
+ggplot(data = pit_dataq) + geom_point(mapping = aes(PitTime, Driver, col = Driver), size = 4)
+l <- subset(laps.nonpit, Driver %in% c("MAG","ALO","VER"))  
+with(l,reorder(Driver,LapTime, median))
+
+```
 
 
 ```{r}
-library(ggplot2)
-library(plotly)
-library(shiny)
+# Total width of window is 12 units
 
-# Create a vector of all unique drivers in the dataset
-all_drivers <- unique(comparison_data$Driver)
-
-# Define the UI
 ui <- fluidPage(
-  selectInput("driverSelect", "Select Drivers:", choices = all_drivers, 
-              selected = c("MAG", "VER"), multiple = TRUE),
-  plotlyOutput("plot")
-)
+  titlePanel(h1("F1 data visualisation for the Spanish GP 2023!", align = "center")),
+  
+  sidebarLayout(position = "left",
+                sidebarPanel("Choose driver", width = 2, 
+                             selectInput(inputId = "driverSelect", 
+                                         label = "Selected drivers:", 
+                                         choices = driver.names, 
+                                         selected = c("VER", "HAM"), 
+                                         multiple = T)),
+                mainPanel(width = 9,
+                          fluidRow(
+                            splitLayout(cellWidths = c("50%","50%"),
+                                        plotlyOutput(outputId = "scatter"),
+                                        plotlyOutput(outputId = "boxplot")
+                                        )
+                            ),
+                          fluidRow(
+                            plotlyOutput(outputId = "lineplot")  
+                          )
+                          
+                )
+))
 
-# Define the server function
-server <- function(input, output, session) {
-  # Create a reactive variable to store the selected drivers
-  selected_drivers <- reactive({
-    input$driverSelect
+server <- function(input, output) {
+  
+  # Manage data
+  selected_drivers <- reactive(input$driverSelect)
+  selected_data <- reactive(subset(laps.nonpit, Driver %in% selected_drivers()))
+  selected_laps_pit <- reactive(subset(laps, !is.na(PitOutTime) | !is.na(PitInTime)) %>% 
+                                subset(., Driver %in% selected_drivers()))
+  selected_pit_data <- reactive(subset(pit_data, Driver %in% selected_drivers()))
+  
+  # Create interactive plots
+  # Laptime vs lapnumber
+  pt1 <- reactive({
+    p1 <- ggplot(selected_data(), aes(LapNumber, LapTime, col = Driver)) + 
+      geom_line() + xlab("Lap Number") + ylab("Lap time [s]") + 
+      ggtitle("Lap time throughout the race for selected drivers")
+    ggplotly(p1) %>% layout(showlegend = F) 
+  })
+  
+  # Boxplot of laptimes
+  pt2 <- reactive({
+    p2 <- ggplot(selected_data(),mapping = aes(x = reorder(Driver, LapTime, FUN = median), y = LapTime, col = Driver)) + geom_boxplot() + xlab("Driver") + ylab("Lap time [s]") + 
+      ggtitle("Lap time distributions for selected drivers")
+    ggplotly(p2) %>% layout(showlegend = F)
+  })
+  
+  # Scatterplot of drivers vs pit times
+  pt3 <- reactive({
+    p3 <- ggplot(data = selected_pit_data()) + 
+      geom_point(mapping = aes(PitTime, Driver, col = Driver), size = 3) + 
+      xlab("Pit Time [s]") + ylab("Driver") + ggtitle("Pit times for selected drivers")
+    
+    ggplotly(p3) %>% layout(showlegend = F)
   })
 
-  # Create the ggplot object with reactive data
-  p <- reactive({
-    filtered_data <- subset(comparison_data, Driver %in% selected_drivers())
-    ggplot(filtered_data, aes(LapNumber, LapTime, col = Driver)) + geom_line()
-  })
 
-  # Create the plotly object
-  p_plotly <- reactive({
-    ggplotly(p()) %>% rangeslider()
-  })
-
-  # Render the plotly object
-  output$plot <- renderPlotly({
-    p_plotly()
-  })
+  # Render plots
+  output$lineplot <- renderPlotly({pt1()})
+  output$boxplot <- renderPlotly({pt2()})
+  output$scatter <- renderPlotly({pt3()})
 }
 
-# Run the Shiny app
 shinyApp(ui, server)
 ```
-
-
-
-
 
 
