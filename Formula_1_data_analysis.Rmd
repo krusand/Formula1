@@ -15,17 +15,30 @@ library(tidyverse)
 library(lubridate)
 library(plotly)
 library(shiny)
+library(glue)
 ```
 
 
 # Importing data
 
 ```{r}
-df <- read_csv("Data/SPAIN_Race_laps.csv", show_col_types = F)
-head(df)
+
+loadData <- function(race) {return(read_csv(glue("Data/{race}_Race_laps.csv"), show_col_types = F))}
+
+
 ```
 
 ```{r}
+df <- loadData("SPAIN")
+subset(df, DriverNumber == 1)
+
+
+```
+
+
+```{r}
+
+races <- c("BAHRAIN", "SAUDI", "AUSTRALIA", "BAKU","MIAMI","MONACO", "SPAIN")
 
 cat("Columns:\n", colnames(df), "\n\n")
 
@@ -37,59 +50,73 @@ cat("Driver nr:\n", driver.nr, "\n\n")
 
 ```
 
-### Compare drivers laptimes
-
-
 
 ```{r}
 
-laps <- df %>% drop_na(LapTime)
-laptimes <- c()
-for (i in 1:length(laps$LapTime)) {
-  laptime <- gsub("0 days 00:","",laps$LapTime[i])
-  laptimes <- c(laptimes, as.numeric(ms(laptime)))
+convertLapTimes <- function(df) {
+  laptimes <- c()
+  for (i in 1:length(df$LapTime)) {
+    laptime <- gsub("0 days 00:","", df$LapTime[i])
+    laptimes <- c(laptimes, as.numeric(ms(laptime)))
+    }
+  df$LapTime <- laptimes
+  return(df)
 }
 
-laps$LapTime <- laptimes
+laps <- df %>% drop_na(LapTime) %>% convertLapTimes(.)
 
-laps.nonpit <- subset(laps, is.na(PitOutTime)) %>% subset(., is.na(PitInTime)) # Remove pit laps
+removePitLaps <- function(df) {return(subset(df, is.na(PitOutTime)) %>% subset(., is.na(PitInTime)))}
 
-p <- ggplot(laps.nonpit, aes(LapNumber, LapTime, col= Driver)) + geom_line()
-ggplotly(p)
+removeLapsTrackStatus <- function(df) {return(subset(df, TrackStatus == 1))}
 
-p2 <- ggplot(laps.nonpit) + geom_boxplot(mapping = aes(Driver, LapTime, col = Driver))
-ggplotly(p2)
+laps.nonpit <- removePitLaps(laps)
+laps.nonpit.greenflag <- removeLapsTrackStatus(laps.nonpit)
+
 
 ```
 
 ```{r}
 # Get pit time data
 
-selected_laps_pit1 <- subset(df, !is.na(PitOutTime) | !is.na(PitInTime))
-selected_laps_pit1 <- subset(selected_laps_pit1, (LapNumber == 1 & !is.na(PitInTime) | LapNumber != 1))
+onlyPitLaps <- function(df) {
+  status <- c(1,2,3,4,6,7, 25, 45) # Used for TrackStatus
 
-
-pit_drivers <- c()
-pit_times <- c()
-
-for (i in seq(1,length(selected_laps_pit1$PitInTime)-1,by = 2)) {
-  time_diff <- as.numeric(
-    as.duration(
-      hms(gsub("0 days ", "", selected_laps_pit1$PitOutTime[i+1])) - 
-      hms(gsub("0 days ", "", selected_laps_pit1$PitInTime[i]))
+  selected_laps_pit <- 
+    subset(df, !is.na(PitOutTime) | !is.na(PitInTime)) %>% 
+    subset(., (LapNumber == 1 & !is.na(PitInTime) | LapNumber != 1)) %>%
+    subset(., TrackStatus %in% status)
+  
+  
+  pit_drivers <- c()
+  pit_times <- c()
+  
+  for (i in seq(1,length(selected_laps_pit$PitInTime)-1,by = 2)) {
+    time_diff <- as.numeric(
+      as.duration(
+        hms(gsub("0 days ", "", selected_laps_pit$PitOutTime[i+1])) - 
+        hms(gsub("0 days ", "", selected_laps_pit$PitInTime[i]))
+        )
       )
-    )
-  pit_times <- c(pit_times, time_diff)
-  pit_drivers <- c(pit_drivers, selected_laps_pit1$Driver[i])
+    print(time_diff)
+    if (is.na(time_diff)) {next}
+    if (time_diff > 80) {next}
+    else {
+      pit_times <- c(pit_times, time_diff)  
+      pit_drivers <- c(pit_drivers, selected_laps_pit$Driver[i])
+    }
+  }
+  
+  pit_data <- data.frame(Driver = pit_drivers, PitTime = pit_times )
+  return(pit_data)
 }
 
-pit_data <- data.frame(Driver = pit_drivers, PitTime = pit_times )
-pit_data
-pit_data <- subset(pit_data, Driver %in% c("MAG","ALO"))
 
-ggplot(data = pit_dataq) + geom_point(mapping = aes(PitTime, Driver, col = Driver), size = 4)
-l <- subset(laps.nonpit, Driver %in% c("MAG","ALO","VER"))  
-with(l,reorder(Driver,LapTime, median))
+data <- loadData("MIAMI")
+laps <- data %>% drop_na(LapTime) %>% convertLapTimes(.)
+laps.nonpit <- removePitLaps(laps)
+laps.nonpit.greenflag <- removeLapsTrackStatus(laps.nonpit)
+pit_data <- onlyPitLaps(data)
+pit_data
 
 ```
 
@@ -98,15 +125,21 @@ with(l,reorder(Driver,LapTime, median))
 # Total width of window is 12 units
 
 ui <- fluidPage(
-  titlePanel(h1("F1 data visualisation for the Spanish GP 2023!", align = "center")),
-  
+  titlePanel(h1("F1 data visualisation for selected 2023 grand prix's!", align = "center")),
+  theme = "flatly",
   sidebarLayout(position = "left",
                 sidebarPanel("Choose driver", width = 2, 
                              selectInput(inputId = "driverSelect", 
                                          label = "Selected drivers:", 
                                          choices = driver.names, 
                                          selected = c("VER", "HAM"), 
-                                         multiple = T)),
+                                         multiple = T),
+                             selectInput(inputId = "GPSelect",
+                                         label = "Selected grand prix",
+                                         choices = races, 
+                                         selected = "SPAIN",
+                                         multiple = F)
+                             ),
                 mainPanel(width = 9,
                           fluidRow(
                             splitLayout(cellWidths = c("50%","50%"),
@@ -125,24 +158,40 @@ server <- function(input, output) {
   
   # Manage data
   selected_drivers <- reactive(input$driverSelect)
-  selected_data <- reactive(subset(laps.nonpit, Driver %in% selected_drivers()))
-  selected_laps_pit <- reactive(subset(laps, !is.na(PitOutTime) | !is.na(PitInTime)) %>% 
-                                subset(., Driver %in% selected_drivers()))
-  selected_pit_data <- reactive(subset(pit_data, Driver %in% selected_drivers()))
+  selected_gp <- reactive(input$GPSelect)
+  
+  data <- reactive(loadData(selected_gp()))
+  
+  laps <- reactive(data() %>% drop_na(LapTime) %>% convertLapTimes(.))
+  laps.nonpit <- reactive(removePitLaps(laps()))
+  laps.nonpit.greenflag <- reactive(removeLapsTrackStatus(laps.nonpit()))
+  pit_data <- reactive(onlyPitLaps(data()))
+  
+  selected_data <- reactive(subset(laps.nonpit.greenflag(), Driver %in% selected_drivers()))
+
+  selected_pit_data <- reactive(subset(pit_data(), Driver %in% selected_drivers()))
   
   # Create interactive plots
   # Laptime vs lapnumber
   pt1 <- reactive({
     p1 <- ggplot(selected_data(), aes(LapNumber, LapTime, col = Driver)) + 
-      geom_line() + xlab("Lap Number") + ylab("Lap time [s]") + 
+      geom_line() + 
+      geom_point() + 
+      xlab("Lap Number") + 
+      ylab("Lap time [s]") + 
       ggtitle("Lap time throughout the race for selected drivers")
     ggplotly(p1) %>% layout(showlegend = F) 
   })
   
   # Boxplot of laptimes
   pt2 <- reactive({
-    p2 <- ggplot(selected_data(),mapping = aes(x = reorder(Driver, LapTime, FUN = median), y = LapTime, col = Driver)) + geom_boxplot() + xlab("Driver") + ylab("Lap time [s]") + 
-      ggtitle("Lap time distributions for selected drivers")
+    p2 <- ggplot(selected_data(), mapping = 
+                   aes(x = reorder(Driver, LapTime, FUN = median), y = LapTime, col = Driver)) + 
+      geom_boxplot() + 
+      xlab("Driver") + 
+      ylab("Lap time [s]") + 
+      ggtitle("Lap time distributions for selected drivers") + 
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
     ggplotly(p2) %>% layout(showlegend = F)
   })
   
@@ -150,7 +199,10 @@ server <- function(input, output) {
   pt3 <- reactive({
     p3 <- ggplot(data = selected_pit_data()) + 
       geom_point(mapping = aes(PitTime, Driver, col = Driver), size = 3) + 
-      xlab("Pit Time [s]") + ylab("Driver") + ggtitle("Pit times for selected drivers")
+      xlab("Pit Time [s]") + 
+      ylab("Driver") + 
+      ggtitle("Pit times for selected drivers", 
+              subtitle = "Only shows drivers who pitted during non red flags")
     
     ggplotly(p3) %>% layout(showlegend = F)
   })
@@ -158,8 +210,8 @@ server <- function(input, output) {
 
   # Render plots
   output$lineplot <- renderPlotly({pt1()})
-  output$boxplot <- renderPlotly({pt2()})
-  output$scatter <- renderPlotly({pt3()})
+  output$boxplot  <- renderPlotly({pt2()})
+  output$scatter  <- renderPlotly({pt3()})
 }
 
 shinyApp(ui, server)
