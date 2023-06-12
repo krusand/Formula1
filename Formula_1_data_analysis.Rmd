@@ -97,7 +97,6 @@ onlyPitLaps <- function(df) {
         hms(gsub("0 days ", "", selected_laps_pit$PitInTime[i]))
         )
       )
-    print(time_diff)
     if (is.na(time_diff)) {next}
     if (time_diff > 80) {next}
     else {
